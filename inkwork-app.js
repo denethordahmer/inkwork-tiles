@@ -1,453 +1,621 @@
 /* =========================================================================
-   INKWORK TILES: inkwork-styles.js
-   The four drawing recipes: Motif Grid, Lattice, Hex Weave, Truchet.
-   inkwork-app.js calls InkworkStyles.draw(context, width, height, settings).
-   This file only draws the pattern. The app paints the background first.
-   Every recipe fills the whole picture, at any size and rotation.
+   INKWORK TILES: inkwork-app.js
+   Controls, colours, colour picker, saved looks and saving images.
+   Uses InkworkStyles.draw() from inkwork-styles.js for the drawing.
    ========================================================================= */
 (function () {
   "use strict";
 
-  var TAU = Math.PI * 2;
-  var HALF = Math.PI / 2;
-
-  /* ---------- small helpers ---------- */
-  function num(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  function $(id) { return document.getElementById(id); }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-  function mod(a, n) { return ((a % n) + n) % n; }
 
-  function hash(str) {
-    var h = 2166136261 >>> 0;
-    str = String(str || "inkwork");
-    for (var i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
-  }
+  var canvas = $("mainCanvas");
+  var sheet = $("sheet");
+  var handle = $("sheetHandle");
 
-  /* A repeatable random number for one tile. The same seed and the same
-     tile position always give the same answer, so changing Rotation or
-     Tile size never reshuffles the dice in a confusing way. */
-  function cr(seed, i, j, s) {
-    var h = (seed ^ Math.imul(i + 1013, 374761393) ^ Math.imul(j + 7919, 668265263) ^ Math.imul(s + 1, 2147483647)) >>> 0;
-    h = Math.imul(h ^ (h >>> 15), 2246822519);
-    h = Math.imul(h ^ (h >>> 13), 3266489917);
-    h ^= h >>> 16;
-    return (h >>> 0) / 4294967296;
-  }
+  var CONTROLS = [
+    "patternStyle", "seed", "tileSize", "rotation", "lineWeight", "opacity",
+    "motifType", "motifSize", "motifFill", "tileTurn", "tileOffset", "motifColour",
+    "latticeShape", "latticeWeave", "strandWidth", "latticeColour",
+    "hexStyle", "hexGap", "hexColour",
+    "truchetStyle", "truchetMix", "truchetColour",
+    "colorScheme", "color1", "color2", "color3", "color4",
+    "bgStyle", "bgColor", "bgColor2", "bgTransparent",
+    "size", "format", "filename"
+  ];
+  var COLOR_IDS = ["color1", "color2", "color3", "color4", "bgColor", "bgColor2"];
 
-  function hexToRgb(h) {
-    h = String(h || "#000000").replace("#", "");
+  /* the slightly darker paper colours used when the tool first opens */
+  var START_BG = "#e2d9c6";
+  var START_BG2 = "#cfc4ab";
+
+  var SIZES = {
+    square: [1500, 1500],
+    portrait: [1080, 1620],
+    a17: [1080, 2340],
+    landscape: [1920, 1080]
+  };
+
+  /* ---------- colour maths ---------- */
+  function hexToRgb(hex) {
+    var h = String(hex || "#000000").replace("#", "");
     if (h.length === 3) h = h.split("").map(function (c) { return c + c; }).join("");
     var n = parseInt(h, 16);
     if (isNaN(n)) n = 0;
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
-  function toHex(r, g, b) {
+  function rgbToHex(r, g, b) {
     return "#" + [r, g, b].map(function (v) {
       return ("0" + Math.round(clamp(v, 0, 255)).toString(16)).slice(-2);
     }).join("");
   }
-  function rgba(hex, a) {
-    var c = hexToRgb(hex);
-    return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + clamp(a, 0, 1) + ")";
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), h = 0, s = 0, l = (mx + mn) / 2;
+    if (mx !== mn) {
+      var d = mx - mn;
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h /= 6;
+    }
+    return [h * 360, s * 100, l * 100];
   }
-  function darken(hex, f) {
-    var c = hexToRgb(hex);
-    return toHex(c[0] * (1 - f), c[1] * (1 - f), c[2] * (1 - f));
+  function hslToRgb(h, s, l) {
+    h = (((h % 360) + 360) % 360) / 360; s /= 100; l /= 100;
+    if (s === 0) { var v = l * 255; return [v, v, v]; }
+    var q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    function f(t) {
+      if (t < 0) t += 1; if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    }
+    return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
+  }
+  function hslHex(h, s, l) {
+    var c = hslToRgb(h, clamp(s, 0, 100), clamp(l, 0, 100));
+    return rgbToHex(c[0], c[1], c[2]);
+  }
+  function hsvToRgb(h, s, v) {
+    h = (((h % 360) + 360) % 360) / 60;
+    var i = Math.floor(h), f = h - i;
+    var p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f)), r, g, b;
+    switch (i % 6) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      default: r = v; g = p; b = q;
+    }
+    return [r * 255, g * 255, b * 255];
+  }
+  function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, h = 0;
+    if (d !== 0) {
+      if (mx === r) h = ((g - b) / d) % 6;
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+    }
+    return [h, mx === 0 ? 0 : d / mx, mx];
   }
 
-  /* paints the shape already in the path: outline, filled, or both */
-  function paintShape(c, mode, col, lw) {
-    if (mode === "filled") {
-      c.fillStyle = rgba(col, 0.95); c.fill();
-    } else if (mode === "both") {
-      c.fillStyle = rgba(col, 0.4); c.fill();
-      c.strokeStyle = rgba(col, 1); c.lineWidth = lw; c.stroke();
+  /* ---------- colour schemes ---------- */
+  var BUILD_SCHEMES = ["complementary", "splitcomp", "analogous", "triadic", "tetradic", "monochrome"];
+
+  /* colour 1-4, background, background 2 */
+  var FIXED = {
+    bauhaus: ["#e63b2e", "#1d3557", "#f2a900", "#2a9d8f", START_BG, START_BG2],
+    delft:   ["#1d3f8a", "#3d6bd1", "#8fb0ee", "#0e2457", "#ebe7dc", "#d8d2c1"],
+    jewel:   ["#059669", "#2563eb", "#8b5cf6", "#eab308", "#05060a", "#111827"],
+    earth:   ["#c2703d", "#b08d3d", "#7a7a52", "#6b3f2a", "#dccfb3", "#c9b793"],
+    pastel:  ["#f4a6a6", "#a6c8f4", "#b6e3c0", "#f7dc9b", "#f0e9d8", "#e2d8bf"],
+    noir:    ["#ff3b3b", "#e5e7eb", "#9ca3af", "#4b5563", "#0a0a0a", "#1a1a1a"],
+    neon:    ["#00e5ff", "#ff00e5", "#aaff00", "#b026ff", "#000000", "#0a0a0a"]
+  };
+
+  function buildScheme(name, c1hex) {
+    var rgb = hexToRgb(c1hex);
+    var hsl = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+    var h = hsl[0];
+    var s = hsl[1] < 6 ? 65 : hsl[1];
+    var l = clamp(hsl[2], 12, 88);
+    var lit = clamp(l + 15, 8, 94);
+    switch (name) {
+      case "complementary":
+        return [c1hex, hslHex(h + 180, s, l), hslHex(h, s, lit), hslHex(h + 180, s, lit)];
+      case "splitcomp":
+        return [c1hex, hslHex(h + 150, s, l), hslHex(h + 210, s, l), hslHex(h, s, lit)];
+      case "analogous":
+        return [c1hex, hslHex(h + 25, s, l), hslHex(h - 25, s, l), hslHex(h + 50, s, l)];
+      case "triadic":
+        return [c1hex, hslHex(h + 120, s, l), hslHex(h + 240, s, l), hslHex(h, s, lit)];
+      case "tetradic":
+        return [c1hex, hslHex(h + 90, s, l), hslHex(h + 180, s, l), hslHex(h + 270, s, l)];
+      case "monochrome":
+        return [c1hex, hslHex(h, s, clamp(l + 18, 8, 94)), hslHex(h, s, clamp(l - 18, 8, 94)), hslHex(h, s, clamp(l + 32, 8, 94))];
+    }
+    return null;
+  }
+
+  function setColor(id, hex) {
+    $(id).value = hex;
+    var dot = $(id + "Dot");
+    if (dot) dot.style.background = hex;
+  }
+
+  function applyScheme(name) {
+    if (name === "custom") return;
+    if (FIXED[name]) {
+      var f = FIXED[name];
+      setColor("color1", f[0]); setColor("color2", f[1]);
+      setColor("color3", f[2]); setColor("color4", f[3]);
+      setColor("bgColor", f[4]); setColor("bgColor2", f[5]);
     } else {
-      c.strokeStyle = rgba(col, 1); c.lineWidth = lw; c.stroke();
-    }
-  }
-
-  function starPath(c, x, y, pts, outer, inner) {
-    c.beginPath();
-    for (var i = 0; i < pts * 2; i++) {
-      var a = -HALF + i * Math.PI / pts;
-      var r = i % 2 === 0 ? outer : inner;
-      var px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
-      if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
-    }
-    c.closePath();
-  }
-
-  /* =======================================================================
-     MOTIF GRID
-     One small shape repeated on a grid, turned and coloured tile by tile.
-     ======================================================================= */
-  function motif(S) {
-    var c = S.c, p = S.p, cols = S.cols, T = S.T, lw = S.lw;
-    var n = Math.ceil(S.D / T) + 2;
-    var s = T * 0.5 * clamp(num(p.motifSize), 30, 100) / 100;
-    var type = p.motifType, fill = p.motifFill;
-    c.lineJoin = "round"; c.lineCap = "round";
-
-    for (var j = -n; j <= n; j++) {
-      for (var i = -n; i <= n; i++) {
-        var cx = i * T + T / 2, cy = j * T + T / 2;
-        if (p.tileOffset === "brick") cx += mod(j, 2) * T / 2;
-        else if (p.tileOffset === "drop") cy += mod(i, 2) * T / 2;
-
-        var turn = 0;
-        if (p.tileTurn === "quarter") turn = mod(i + j, 4) * HALF;
-        else if (p.tileTurn === "half") turn = mod(i + j, 2) * Math.PI;
-        else if (p.tileTurn === "random") turn = Math.floor(cr(S.seed, i, j, 1) * 4) * HALF;
-
-        var idx;
-        if (p.motifColour === "row") idx = mod(j, 4);
-        else if (p.motifColour === "column") idx = mod(i, 4);
-        else if (p.motifColour === "random") idx = Math.floor(cr(S.seed, i, j, 2) * 4) % 4;
-        else idx = mod(i, 2) + 2 * mod(j, 2);
-        var col = cols[idx];
-
-        c.save();
-        c.translate(cx, cy);
-        c.rotate(turn);
-
-        if (type === "dot") {
-          c.beginPath(); c.arc(0, 0, s, 0, TAU);
-          paintShape(c, fill, col, lw);
-        } else if (type === "diamond") {
-          c.beginPath();
-          c.moveTo(0, -s); c.lineTo(s * 0.8, 0); c.lineTo(0, s); c.lineTo(-s * 0.8, 0);
-          c.closePath();
-          paintShape(c, fill, col, lw);
-        } else if (type === "petal") {
-          c.beginPath();
-          c.moveTo(-s, 0);
-          c.quadraticCurveTo(0, -s * 1.1, s, 0);
-          c.quadraticCurveTo(0, s * 1.1, -s, 0);
-          c.closePath();
-          paintShape(c, fill, col, lw);
-        } else if (type === "arrow") {
-          c.beginPath();
-          c.moveTo(0, -s); c.lineTo(s * 0.75, s * 0.7); c.lineTo(0, s * 0.3); c.lineTo(-s * 0.75, s * 0.7);
-          c.closePath();
-          paintShape(c, fill, col, lw);
-        } else if (type === "eye") {
-          c.beginPath();
-          c.moveTo(-s, 0);
-          c.quadraticCurveTo(0, -s * 1.05, s, 0);
-          c.quadraticCurveTo(0, s * 1.05, -s, 0);
-          c.closePath();
-          paintShape(c, fill, col, lw);
-          c.beginPath(); c.arc(0, 0, s * 0.3, 0, TAU);
-          c.fillStyle = rgba(col, 1); c.fill();
-        } else {
-          starPath(c, 0, 0, 8, s, s * 0.5);
-          paintShape(c, fill, col, lw);
-        }
-        c.restore();
+      var out = buildScheme(name, $("color1").value);
+      if (out) {
+        setColor("color2", out[1]); setColor("color3", out[2]); setColor("color4", out[3]);
       }
     }
   }
 
-  /* =======================================================================
-     LATTICE
-     Straight ribbons in two or three directions, woven over and under.
-     Over-under: every crossing alternates which ribbon is on top.
-     Gapped: the ribbon underneath is broken at each crossing.
-     Flat: all ribbons simply lie on top of each other.
-     ======================================================================= */
-  function lattice(S) {
-    var c = S.c, p = S.p, cols = S.cols, T = S.T, D = S.D;
-    var shape = p.latticeShape, weave = p.latticeWeave;
-    var angles, offs;
-    if (shape === "square") { angles = [0, HALF]; offs = [0, 0]; }
-    else if (shape === "triangle") { angles = [0, Math.PI / 3, 2 * Math.PI / 3]; offs = [0, 0, 0.33]; }
-    else { angles = [Math.PI / 4, 3 * Math.PI / 4]; offs = [0, 0]; }
+  /* ---------- labels ---------- */
+  function syncBadge(id) {
+    var el = $(id), badge = $(id + "Val");
+    if (!el || !badge) return;
+    if (el.tagName === "SELECT") {
+      var o = el.options[el.selectedIndex];
+      badge.textContent = o ? o.text.replace(/\s*\(.*\)$/, "") : el.value;
+    } else {
+      badge.textContent = el.value;
+    }
+  }
+  function syncAllBadges() {
+    CONTROLS.forEach(syncBadge);
+    $("bgTransparentVal").textContent = $("bgTransparent").value === "true" ? "On" : "Off";
+  }
 
-    var P = T * 0.75;
-    var tri = angles.length === 3;
-    var w = Math.min(num(p.strandWidth) * S.k, P * (tri ? 0.5 : 0.8));
-    w = Math.max(w, 2);
-    var o = weave === "flat" ? 0 : Math.max(1, S.lw);
-    var K = Math.ceil(D / P) + 1;
-    c.lineCap = "butt"; c.lineJoin = "round";
-
-    var fam = angles.map(function (a, f) {
-      return { u: [Math.cos(a), Math.sin(a)], nv: [-Math.sin(a), Math.cos(a)], off: offs[f] * P };
+  /* ---------- show only what applies ---------- */
+  function updateVisibility() {
+    var style = $("patternStyle").value;
+    document.querySelectorAll("[data-styles]").forEach(function (el) {
+      var ok = el.getAttribute("data-styles").split(" ").indexOf(style) !== -1;
+      el.classList.toggle("hidden", !ok);
     });
-
-    function strandCol(f, k) {
-      return p.latticeColour === "strand" ? cols[mod(k + f, 4)] : cols[f % 4];
-    }
-
-    /* draw part of a strand from distance t0 to t1 along it */
-    function seg(f, k, t0, t1) {
-      var F = fam[f], base = k * P + F.off;
-      var bx = F.nv[0] * base, by = F.nv[1] * base;
-      var col = strandCol(f, k);
-      c.beginPath();
-      c.moveTo(bx + F.u[0] * t0, by + F.u[1] * t0);
-      c.lineTo(bx + F.u[0] * t1, by + F.u[1] * t1);
-      if (o > 0) {
-        c.lineWidth = w + 2 * o;
-        c.strokeStyle = darken(col, 0.55);
-        c.stroke();
-      }
-      c.lineWidth = w;
-      c.strokeStyle = rgba(col, 1);
-      c.stroke();
-    }
-
-    /* where strand (fa,ka) crosses strand (fb,kb): distance along strand a */
-    function cross(fa, ka, fb, kb) {
-      var A = fam[fa], B = fam[fb];
-      var ca = ka * P + A.off, cb = kb * P + B.off;
-      var det = A.nv[0] * B.nv[1] - A.nv[1] * B.nv[0];
-      if (Math.abs(det) < 0.05) return null;
-      var X = (ca * B.nv[1] - cb * A.nv[1]) / det;
-      var Y = (A.nv[0] * cb - B.nv[0] * ca) / det;
-      return { t: X * A.u[0] + Y * A.u[1], sin: Math.abs(det), r2: X * X + Y * Y };
-    }
-
-    var f, k, g, kb;
-
-    if (weave === "gap") {
-      for (f = 0; f < fam.length; f++) {
-        for (k = -K; k <= K; k++) {
-          var unders = [];
-          for (g = 0; g < fam.length; g++) {
-            if (g === f) continue;
-            for (kb = -K; kb <= K; kb++) {
-              var X = cross(f, k, g, kb);
-              if (!X || Math.abs(X.t) > D) continue;
-              var odd = mod(k + kb, 2) === 1;
-              var under = f < g ? odd : !odd;
-              if (under) unders.push({ t: X.t, h: (w / 2 + o) / X.sin + w * 0.3 });
-            }
-          }
-          unders.sort(function (a, b) { return a.t - b.t; });
-          var start = -D;
-          for (var u = 0; u < unders.length; u++) {
-            var end = unders[u].t - unders[u].h;
-            if (end > start) seg(f, k, start, end);
-            start = Math.max(start, unders[u].t + unders[u].h);
-          }
-          if (D > start) seg(f, k, start, D);
-        }
-      }
-      return;
-    }
-
-    /* flat and over-under: draw every strand, later directions on top */
-    for (f = 0; f < fam.length; f++) {
-      for (k = -K; k <= K; k++) seg(f, k, -D, D);
-    }
-    if (weave !== "over") return;
-
-    /* then lift the earlier strand back on top at every second crossing */
-    for (f = 0; f < fam.length; f++) {
-      for (g = f + 1; g < fam.length; g++) {
-        for (k = -K; k <= K; k++) {
-          for (kb = -K; kb <= K; kb++) {
-            if (mod(k + kb, 2) !== 0) continue;
-            var X2 = cross(f, k, g, kb);
-            if (!X2 || X2.r2 > (D + T) * (D + T)) continue;
-            var h = (w / 2 + o) / X2.sin + o + 1;
-            seg(f, k, X2.t - h, X2.t + h);
-          }
-        }
-      }
-    }
+    var names = { motif: "Motif Grid", lattice: "Lattice", hex: "Hex Weave", truchet: "Truchet" };
+    $("sheetLabel").textContent = names[style] || "Settings";
+    updateHexRows();
   }
 
-  /* =======================================================================
-     HEX WEAVE
-     Honeycomb. Outline and Filled draw one hexagon per cell. Woven bands
-     draw every honeycomb edge as a ribbon and alternate which ribbon is
-     on top where three of them meet.
-     ======================================================================= */
-  function hexPath(c, x, y, r) {
-    c.beginPath();
-    for (var m = 0; m < 6; m++) {
-      var a = -HALF + m * Math.PI / 3;
-      var px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
-      if (m === 0) c.moveTo(px, py); else c.lineTo(px, py);
-    }
-    c.closePath();
+  /* Cell gap does nothing in Woven bands, so hide it there */
+  function updateHexRows() {
+    var row = document.querySelector('.settingRow[data-key="hexGap"]');
+    if (row) row.classList.toggle("hidden", $("hexStyle").value === "woven");
   }
 
-  function hex(S) {
-    var c = S.c, p = S.p, cols = S.cols, T = S.T, D = S.D, lw = S.lw;
-    var R = T / Math.sqrt(3);
-    var rowH = R * 1.5;
-    var J = Math.ceil(D / rowH) + 2;
-    var I = Math.ceil(D / T) + 2;
-    var style = p.hexStyle;
-    var gap = clamp(num(p.hexGap), 0, 30) / 100;
-    c.lineJoin = "round"; c.lineCap = "round";
-
-    function cell(i, j) {
-      var q = i - (j - mod(j, 2)) / 2, r = j;
-      return {
-        x: (i + mod(j, 2) * 0.5) * T,
-        y: j * rowH,
-        q: q, r: r
-      };
-    }
-    function colourOf(i, j, q, r) {
-      var idx;
-      if (p.hexColour === "rings") idx = Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) % 4;
-      else if (p.hexColour === "random") idx = Math.floor(cr(S.seed, i, j, 3) * 4) % 4;
-      else idx = mod(q, 4);
-      return cols[idx];
-    }
-
-    var i, j, m, ce, col;
-
-    if (style !== "woven") {
-      var rr = R * (1 - gap);
-      for (j = -J; j <= J; j++) {
-        for (i = -I; i <= I; i++) {
-          ce = cell(i, j);
-          col = colourOf(i, j, ce.q, ce.r);
-          hexPath(c, ce.x, ce.y, rr);
-          if (style === "filled") {
-            c.fillStyle = rgba(col, 0.95); c.fill();
-            c.strokeStyle = rgba(col, 1); c.lineWidth = 1; c.stroke();
-          } else {
-            c.strokeStyle = rgba(col, 1); c.lineWidth = lw; c.stroke();
-          }
-        }
-      }
-      return;
-    }
-
-    /* woven bands: edges 0, 1 and 2 of every cell cover each edge once */
-    var bw = Math.max(R * 0.34, lw * 1.5);
-    var o = Math.max(1, lw * 0.5);
-    for (var pass = 0; pass < 2; pass++) {
-      for (j = -J; j <= J; j++) {
-        for (i = -I; i <= I; i++) {
-          ce = cell(i, j);
-          col = colourOf(i, j, ce.q, ce.r);
-          for (m = 0; m < 3; m++) {
-            if (mod(i + j + m, 2) !== pass) continue;
-            var a0 = -HALF + m * Math.PI / 3, a1 = a0 + Math.PI / 3;
-            var x0 = ce.x + Math.cos(a0) * R, y0 = ce.y + Math.sin(a0) * R;
-            var x1 = ce.x + Math.cos(a1) * R, y1 = ce.y + Math.sin(a1) * R;
-            c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1);
-            c.lineWidth = bw + 2 * o; c.strokeStyle = darken(col, 0.55); c.stroke();
-            c.lineWidth = bw; c.strokeStyle = rgba(col, 1); c.stroke();
-          }
-        }
-      }
-    }
+  function updateBgRows() {
+    var trans = $("bgTransparent").value === "true";
+    var style = $("bgStyle").value;
+    $("bgColor2Row").classList.toggle("hidden", style === "solid");
+    ["bgStyle", "bgColor", "bgColor2"].forEach(function (key) {
+      var row = document.querySelector('.settingRow[data-key="' + key + '"]');
+      if (!row) return;
+      row.classList.toggle("dimmed", trans);
+      if (trans) row.setAttribute("data-note", "Transparent is on");
+      else row.removeAttribute("data-note");
+    });
   }
 
-  /* =======================================================================
-     TRUCHET
-     Square tiles, each flipped one of two ways. Where lines meet at tile
-     edges they always join up, so the tiles form flowing paths.
-     ======================================================================= */
-  function arcs(c, x0, y0, T, flip, r) {
-    c.beginPath();
-    if (!flip) {
-      c.moveTo(x0 + r, y0); c.arc(x0, y0, r, 0, HALF);
-      c.moveTo(x0 + T - r, y0 + T); c.arc(x0 + T, y0 + T, r, Math.PI, Math.PI * 1.5);
+  function setTransparent(on) {
+    $("bgTransparent").value = on ? "true" : "false";
+    var tg = $("bgTransparentToggle");
+    tg.setAttribute("data-on", on ? "true" : "false");
+    tg.textContent = on ? "On" : "Off";
+    $("bgTransparentVal").textContent = on ? "On" : "Off";
+    updateBgRows();
+  }
+
+  /* ---------- drawing ---------- */
+  function getParams() {
+    var p = {};
+    CONTROLS.forEach(function (id) { p[id] = $(id).value; });
+    p.style = p.patternStyle;
+    p.colors = [p.color1, p.color2, p.color3, p.color4];
+    return p;
+  }
+
+  function paintBackground(c, W, H, p) {
+    var style = p.bgStyle, g;
+    if (style === "solid") {
+      c.fillStyle = p.bgColor;
     } else {
-      c.moveTo(x0 + T, y0 + r); c.arc(x0 + T, y0, r, HALF, Math.PI);
-      c.moveTo(x0, y0 + T - r); c.arc(x0, y0 + T, r, Math.PI * 1.5, TAU);
-    }
-  }
-
-  function truchet(S) {
-    var c = S.c, p = S.p, cols = S.cols, T = S.T, lw = S.lw;
-    var n = Math.ceil(S.D / T) + 2;
-    var mix = clamp(num(p.truchetMix), 0, 100) / 100;
-    var style = p.truchetStyle;
-    var d = T * 0.14;
-    c.lineCap = "butt"; c.lineJoin = "round";
-
-    for (var j = -n; j <= n; j++) {
-      for (var i = -n; i <= n; i++) {
-        var x0 = i * T, y0 = j * T;
-        var flip = mod(i + j, 2) === 1;
-        if (cr(S.seed, i, j, 4) < mix) flip = cr(S.seed, i, j, 5) < 0.5;
-
-        var col;
-        if (p.truchetColour === "row") col = cols[mod(j, 4)];
-        else if (p.truchetColour === "diagonal") col = cols[mod(i + j, 4)];
-        else if (p.truchetColour === "single") col = cols[0];
-        else col = cols[Math.floor(cr(S.seed, i, j, 6) * 4) % 4];
-
-        if (style === "diagonal") {
-          c.beginPath();
-          if (!flip) { c.moveTo(x0, y0); c.lineTo(x0 + T, y0 + T); }
-          else { c.moveTo(x0 + T, y0); c.lineTo(x0, y0 + T); }
-          c.lineCap = "round";
-          c.lineWidth = lw; c.strokeStyle = rgba(col, 1); c.stroke();
-          c.lineCap = "butt";
-        } else if (style === "double") {
-          var wd = Math.min(lw, d * 1.6);
-          [T / 2 - d, T / 2 + d].forEach(function (r) {
-            arcs(c, x0, y0, T, flip, r);
-            c.lineWidth = wd; c.strokeStyle = rgba(col, 1); c.stroke();
-          });
-        } else if (style === "band") {
-          var bw = Math.max(lw, T * 0.22);
-          var o = Math.max(1, lw * 0.5);
-          arcs(c, x0, y0, T, flip, T / 2);
-          c.lineWidth = bw + 2 * o; c.strokeStyle = darken(col, 0.55); c.stroke();
-          c.lineWidth = bw; c.strokeStyle = rgba(col, 1); c.stroke();
-        } else {
-          arcs(c, x0, y0, T, flip, T / 2);
-          c.lineWidth = lw; c.strokeStyle = rgba(col, 1); c.stroke();
-        }
+      if (style === "radial") {
+        g = c.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.62);
+      } else if (style === "diagonal") {
+        g = c.createLinearGradient(0, 0, W, H);
+      } else {
+        g = c.createLinearGradient(0, 0, 0, H);
       }
+      g.addColorStop(0, p.bgColor);
+      g.addColorStop(1, p.bgColor2);
+      c.fillStyle = g;
+    }
+    c.fillRect(0, 0, W, H);
+  }
+
+  function renderTo(target, factor, withBg) {
+    var sz = SIZES[$("size").value] || SIZES.square;
+    var W = Math.round(sz[0] * factor), H = Math.round(sz[1] * factor);
+    target.width = W; target.height = H;
+    var c = target.getContext("2d");
+    c.clearRect(0, 0, W, H);
+    var p = getParams();
+    if (withBg) paintBackground(c, W, H, p);
+    InkworkStyles.draw(c, W, H, p);
+  }
+
+  function renderPreview() {
+    var sz = SIZES[$("size").value] || SIZES.square;
+    var f = Math.min(1, 1200 / Math.max(sz[0], sz[1]));
+    renderTo(canvas, f, $("bgTransparent").value !== "true");
+  }
+
+  var timer = null;
+  function schedule() {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function () { timer = null; renderPreview(); }, 40);
+  }
+
+  function layoutCanvas() {
+    canvas.style.top = "56px";
+    canvas.style.height = Math.max(100, window.innerHeight - 56 - 76) + "px";
+  }
+  window.addEventListener("resize", layoutCanvas);
+
+  /* ---------- saving ---------- */
+  function cleanName(s) {
+    s = String(s || "").replace(/[^a-zA-Z0-9_\- ]/g, "").trim().replace(/\s+/g, "-");
+    return s || "inkwork-tiles";
+  }
+
+  function exportImage() {
+    var jpg = $("format").value === "jpg";
+    var withBg = jpg || $("bgTransparent").value !== "true";
+    var out = document.createElement("canvas");
+    renderTo(out, 1, withBg);
+    out.toBlob(function (blob) {
+      if (!blob) { alert("Could not make the image. Try a smaller size."); return; }
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = cleanName($("filename").value) + (jpg ? ".jpg" : ".png");
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    }, jpg ? "image/jpeg" : "image/png", 0.92);
+  }
+
+  /* ---------- randomize ---------- */
+  var STYLE_RANDOM = {
+    motif:   ["motifType", "motifSize", "motifFill", "tileTurn", "tileOffset", "motifColour"],
+    lattice: ["latticeShape", "latticeWeave", "strandWidth", "latticeColour"],
+    hex:     ["hexStyle", "hexGap", "hexColour"],
+    truchet: ["truchetStyle", "truchetMix", "truchetColour"]
+  };
+
+  function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+
+  function randomizeControl(id) {
+    var el = $(id);
+    if (!el) return;
+    if (el.tagName === "SELECT") {
+      el.selectedIndex = Math.floor(Math.random() * el.options.length);
+    } else {
+      var mn = parseFloat(el.min), mx = parseFloat(el.max), st = parseFloat(el.step) || 1;
+      var steps = Math.floor((mx - mn) / st);
+      var v = mn + Math.floor(Math.random() * (steps + 1)) * st;
+      el.value = String(Math.round(v * 1000) / 1000);
     }
   }
 
-  /* =======================================================================
-     MAIN ENTRY
-     Draws the pattern on a spare canvas (turned by Rotation and big enough
-     to reach every corner), then lays it on the real one at the chosen
-     opacity. This keeps overlaps clean at any opacity.
-     ======================================================================= */
-  function draw(target, W, H, p) {
-    var off = document.createElement("canvas");
-    off.width = W; off.height = H;
-    var c = off.getContext("2d");
-    var k = Math.min(W, H) / 1500;
-    var T = Math.max(8, num(p.tileSize) * k);
-
-    var S = {
-      c: c, p: p, k: k, T: T,
-      lw: Math.max(1, num(p.lineWeight) * k),
-      D: Math.sqrt(W * W + H * H) / 2 + T * 2,
-      cols: (p.colors || ["#e63b2e", "#1d3557", "#f2a900", "#2a9d8f"]).slice(0, 4),
-      seed: hash(p.seed)
-    };
-
-    c.save();
-    c.translate(W / 2, H / 2);
-    c.rotate(num(p.rotation) * Math.PI / 180);
-
-    var style = p.style;
-    if (style === "lattice") lattice(S);
-    else if (style === "hex") hex(S);
-    else if (style === "truchet") truchet(S);
-    else motif(S);
-
-    c.restore();
-
-    target.save();
-    target.globalAlpha = clamp(num(p.opacity) || 1, 0, 1);
-    target.drawImage(off, 0, 0);
-    target.restore();
+  function randomSeed() {
+    var words = ["ink", "paper", "press", "fold", "grid", "weave", "tile", "stamp", "block", "loom", "thread", "cut"];
+    return pick(words) + "-" + Math.floor(Math.random() * 9999);
   }
 
-  window.InkworkStyles = { draw: draw };
+  /* Keeps your style, size, background and transparency. */
+  function randomizeAll() {
+    $("seed").value = randomSeed();
+    (STYLE_RANDOM[$("patternStyle").value] || []).forEach(randomizeControl);
+    $("rotation").value = String(pick([0, 0, 15, 30, 45, 60, 90]));
+    $("tileSize").value = String(70 + Math.floor(Math.random() * 20) * 10);
+    $("lineWeight").value = String(3 + Math.floor(Math.random() * 9));
+    var c1 = hslHex(Math.random() * 360, 55 + Math.random() * 35, 40 + Math.random() * 20);
+    setColor("color1", c1);
+    $("colorScheme").value = pick(BUILD_SCHEMES);
+    applyScheme($("colorScheme").value);
+    syncAllBadges();
+    updateHexRows();
+    schedule();
+  }
+
+  /* ---------- sheet and rows ---------- */
+  handle.addEventListener("click", function (e) {
+    if (e.target.closest(".generateBtn")) return;
+    sheet.classList.toggle("open");
+  });
+  canvas.addEventListener("click", function () { sheet.classList.remove("open"); });
+
+  document.querySelectorAll(".settingRow").forEach(function (row) {
+    row.addEventListener("click", function (e) {
+      var wasActive = row.classList.contains("active");
+      if (e.target.closest(".settingControl") && wasActive) return;
+      var key = row.getAttribute("data-key");
+      document.querySelectorAll(".settingRow.active").forEach(function (r) { r.classList.remove("active"); });
+      if (COLOR_IDS.indexOf(key) !== -1) {
+        var nm = row.querySelector(".settingName");
+        openPicker(key, nm ? nm.textContent : key);
+        return;
+      }
+      if (!wasActive) row.classList.add("active");
+    });
+  });
+
+  /* ---------- wire controls ---------- */
+  function onControlChange(id) {
+    syncBadge(id);
+    if (id === "patternStyle") updateVisibility();
+    if (id === "hexStyle") updateHexRows();
+    if (id === "colorScheme") applyScheme($(id).value);
+    if (id === "bgStyle") updateBgRows();
+    schedule();
+  }
+
+  CONTROLS.forEach(function (id) {
+    var el = $(id);
+    if (!el || el.type === "hidden") return;
+    el.addEventListener("input", function () { onControlChange(id); });
+    el.addEventListener("change", function () { onControlChange(id); });
+  });
+
+  $("bgTransparentToggle").addEventListener("click", function (e) {
+    e.stopPropagation();
+    setTransparent($("bgTransparent").value !== "true");
+    schedule();
+  });
+
+  $("btnNewSeed").addEventListener("click", function (e) {
+    e.stopPropagation();
+    $("seed").value = randomSeed();
+    syncBadge("seed");
+    schedule();
+  });
+
+  $("btnRandomize").addEventListener("click", randomizeAll);
+  $("btnExport").addEventListener("click", exportImage);
+  $("btnGenerate").addEventListener("click", function () {
+    renderPreview();
+    sheet.classList.remove("open");
+  });
+
+  /* ---------- saved looks ---------- */
+  var PRESET_KEY = "inkwork_tiles_presets_v1";
+
+  function loadPresets() {
+    try { return JSON.parse(localStorage.getItem(PRESET_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function storePresets(obj) {
+    try { localStorage.setItem(PRESET_KEY, JSON.stringify(obj)); }
+    catch (e) { alert("Could not save on this phone."); }
+  }
+  function refreshPresetList() {
+    var presets = loadPresets();
+    var list = $("presetList");
+    list.innerHTML = '<option value="">— none saved —</option>';
+    var names = Object.keys(presets);
+    names.forEach(function (n) {
+      var o = document.createElement("option");
+      o.value = n; o.textContent = n;
+      list.appendChild(o);
+    });
+    $("presetCountVal").textContent = names.length;
+  }
+
+  $("btnSavePreset").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var name = prompt("Name this look:");
+    if (!name) return;
+    var data = {};
+    CONTROLS.forEach(function (id) { data[id] = $(id).value; });
+    var presets = loadPresets();
+    presets[name] = data;
+    storePresets(presets);
+    refreshPresetList();
+    $("presetList").value = name;
+  });
+
+  $("btnLoadPreset").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var name = $("presetList").value;
+    if (!name) return;
+    var data = loadPresets()[name];
+    if (!data) return;
+    CONTROLS.forEach(function (id) {
+      var el = $(id);
+      if (el && data[id] !== undefined) el.value = data[id];
+    });
+    COLOR_IDS.forEach(function (id) { setColor(id, $(id).value); });
+    setTransparent($("bgTransparent").value === "true");
+    syncAllBadges();
+    updateVisibility();
+    updateBgRows();
+    schedule();
+  });
+
+  $("btnDeletePreset").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var name = $("presetList").value;
+    if (!name) return;
+    if (!confirm('Delete "' + name + '"?')) return;
+    var presets = loadPresets();
+    delete presets[name];
+    storePresets(presets);
+    refreshPresetList();
+  });
+
+  /* ---------- colour picker ---------- */
+  var CP = {
+    overlay: $("colorPickerOverlay"),
+    sl: $("cpSLCanvas"), hue: $("cpHueCanvas"),
+    slCur: $("cpSLCursor"), hueCur: $("cpHueCursor"),
+    hex: $("cpHexInput"), prev: $("cpHexPreview"),
+    presets: $("cpPresets"), title: $("cpTitle"),
+    h: 10, s: 0.8, v: 0.9, target: null,
+    PRESETS: [
+      "#e63b2e", "#1d3557", "#f2a900", "#2a9d8f", "#e2d9c6",
+      "#cfc4ab", "#efe9dd", "#ffffff", "#000000", "#94a3b8",
+      "#475569", "#6366f1", "#a855f7", "#ec4899", "#f97316",
+      "#22c55e", "#38bdf8", "#fde68a", "#bbf7d0", "#fce7f3"
+    ]
+  };
+
+  function cpSetHex(hex) {
+    var rgb = hexToRgb(hex);
+    var hsv = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+    if (hsv[1] > 0.001 && hsv[2] > 0.001) CP.h = hsv[0];
+    CP.s = hsv[1]; CP.v = hsv[2];
+  }
+  function cpHex() {
+    var c = hsvToRgb(CP.h, CP.s, CP.v);
+    return rgbToHex(c[0], c[1], c[2]);
+  }
+  function cpDrawHue() {
+    var c = CP.hue;
+    c.width = c.offsetWidth || 300; c.height = c.offsetHeight || 32;
+    var x = c.getContext("2d");
+    var g = x.createLinearGradient(0, 0, c.width, 0);
+    for (var i = 0; i <= 12; i++) g.addColorStop(i / 12, "hsl(" + (i / 12 * 360) + ",100%,50%)");
+    x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
+  }
+  function cpDrawSL() {
+    var c = CP.sl;
+    c.width = c.offsetWidth || 300; c.height = c.offsetHeight || 180;
+    var x = c.getContext("2d");
+    var gH = x.createLinearGradient(0, 0, c.width, 0);
+    gH.addColorStop(0, "#ffffff");
+    gH.addColorStop(1, "hsl(" + CP.h + ",100%,50%)");
+    x.fillStyle = gH; x.fillRect(0, 0, c.width, c.height);
+    var gV = x.createLinearGradient(0, 0, 0, c.height);
+    gV.addColorStop(0, "rgba(0,0,0,0)"); gV.addColorStop(1, "rgba(0,0,0,1)");
+    x.fillStyle = gV; x.fillRect(0, 0, c.width, c.height);
+  }
+  function cpMoveCursors() {
+    CP.hueCur.style.left = (CP.h / 360 * CP.hue.offsetWidth) + "px";
+    CP.slCur.style.left = (CP.s * CP.sl.offsetWidth) + "px";
+    CP.slCur.style.top = ((1 - CP.v) * CP.sl.offsetHeight) + "px";
+    CP.prev.style.background = cpHex();
+  }
+  function cpUpdate() {
+    cpMoveCursors();
+    CP.hex.value = cpHex().slice(1).toUpperCase();
+  }
+  function cpBuildPresets() {
+    CP.presets.innerHTML = "";
+    CP.PRESETS.forEach(function (hex) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "cpPresetSwatch";
+      b.style.background = hex;
+      b.addEventListener("click", function () {
+        cpSetHex(hex); cpDrawSL(); cpUpdate();
+      });
+      CP.presets.appendChild(b);
+    });
+  }
+
+  function openPicker(id, label) {
+    CP.target = id;
+    CP.title.textContent = "Pick: " + label;
+    cpSetHex($(id).value);
+    CP.overlay.classList.remove("hidden");
+    requestAnimationFrame(function () {
+      cpDrawHue(); cpDrawSL(); cpUpdate(); cpBuildPresets();
+    });
+  }
+
+  function dragOn(el, handler) {
+    var down = false;
+    el.addEventListener("pointerdown", function (e) {
+      down = true;
+      try { el.setPointerCapture(e.pointerId); } catch (x) {}
+      handler(e); e.preventDefault();
+    });
+    el.addEventListener("pointermove", function (e) {
+      if (down) { handler(e); e.preventDefault(); }
+    });
+    function stop() { down = false; }
+    el.addEventListener("pointerup", stop);
+    el.addEventListener("pointercancel", stop);
+    el.addEventListener("lostpointercapture", stop);
+  }
+
+  dragOn(CP.hue, function (e) {
+    var r = CP.hue.getBoundingClientRect();
+    CP.h = clamp((e.clientX - r.left) / r.width, 0, 1) * 360;
+    cpDrawSL(); cpUpdate();
+  });
+  dragOn(CP.sl, function (e) {
+    var r = CP.sl.getBoundingClientRect();
+    CP.s = clamp((e.clientX - r.left) / r.width, 0, 1);
+    CP.v = 1 - clamp((e.clientY - r.top) / r.height, 0, 1);
+    cpUpdate();
+  });
+
+  CP.hex.addEventListener("input", function () {
+    var v = CP.hex.value.replace(/[^0-9a-fA-F]/g, "");
+    if (v.length === 6) {
+      cpSetHex("#" + v);
+      cpDrawSL();
+      cpMoveCursors();
+    }
+  });
+
+  function cpClose() { CP.overlay.classList.add("hidden"); }
+
+  $("cpApply").addEventListener("click", function () {
+    var hex = cpHex();
+    var id = CP.target;
+    if (id) {
+      setColor(id, hex);
+      if (id === "color1" && BUILD_SCHEMES.indexOf($("colorScheme").value) !== -1) {
+        applyScheme($("colorScheme").value);
+      } else {
+        $("colorScheme").value = "custom";
+      }
+      syncBadge("colorScheme");
+      schedule();
+    }
+    cpClose();
+  });
+  $("cpCancel").addEventListener("click", cpClose);
+  CP.overlay.addEventListener("click", function (e) {
+    if (e.target === CP.overlay) cpClose();
+  });
+
+  /* ---------- start ---------- */
+  $("bgColor").value = START_BG;
+  $("bgColor2").value = START_BG2;
+  COLOR_IDS.forEach(function (id) { setColor(id, $(id).value); });
+  setTransparent(false);
+  refreshPresetList();
+  syncAllBadges();
+  updateVisibility();
+  updateBgRows();
+  layoutCanvas();
+  renderPreview();
 })();

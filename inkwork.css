@@ -1,23 +1,23 @@
 /* =========================================================================
    INKWORK TILES: inkwork.css
-   Bauhaus Paper look (light). Cream paper, navy ink, red accent.
-   Full-screen canvas, bottom sheet, tappable rows.
+   Bauhaus Paper look (light). Slightly darker cream paper, navy ink,
+   red accent. Full-screen canvas, bottom sheet, tappable rows.
    ========================================================================= */
 
 :root {
-  --bg:            #efe9dd;
-  --panel:         #fbf7ee;
-  --panel-2:       #f4eee1;
-  --panel-3:       #e9e1d0;
-  --border:        #ddd3bf;
-  --border-strong: #c4b79c;
+  --bg:            #e2d9c6;
+  --panel:         #f1ead9;
+  --panel-2:       #e8dfca;
+  --panel-3:       #ddd2ba;
+  --border:        #cfc3a8;
+  --border-strong: #b3a584;
   --text:          #1d3557;
-  --text-dim:      #5d6b82;
-  --text-dimmer:   #8a93a3;
+  --text-dim:      #55637a;
+  --text-dimmer:   #848c9a;
   --accent:        #e63b2e;
   --accent-bright: #c42b20;
   --accent-glow:   rgba(230,59,46,0.30);
-  --gold:          #a85d00;
+  --gold:          #9a5400;
   --danger:        #b4231a;
   --sheet-radius:  22px;
   --row-h:         54px;
@@ -68,7 +68,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: linear-gradient(to bottom, rgba(239,233,221,0.95) 0%, rgba(239,233,221,0) 100%);
+  background: linear-gradient(to bottom, rgba(226,217,198,0.95) 0%, rgba(226,217,198,0) 100%);
   z-index: 50;
 }
 .topTitle {
@@ -102,7 +102,7 @@ html, body {
   border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
   background: var(--panel);
   border-top: 2px solid var(--text);
-  box-shadow: 0 -10px 30px rgba(29,53,87,0.18);
+  box-shadow: 0 -10px 30px rgba(29,53,87,0.2);
   max-height: calc(var(--row-h) + 14px + env(safe-area-inset-bottom, 0px));
   transition: max-height 0.35s cubic-bezier(0.32, 0.72, 0, 1);
   overflow: hidden;

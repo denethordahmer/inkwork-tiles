@@ -3,8 +3,9 @@
    Saves the app files on the phone so it opens without internet.
    Raise the version number in CACHE_NAME whenever any app file changes,
    or phones keep showing the old copy.
+   v2: replaces the broken app file and the darker background.
    ========================================================================= */
-const CACHE_NAME = "inkwork-tiles-v1";
+const CACHE_NAME = "inkwork-tiles-v2";
 
 const APP_FILES = [
   "./",
