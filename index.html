@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efe9dd">
+<title>Inkwork Tiles</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="inkwork.css">
+</head>
+<body>
+
+<div class="appWrap">
+
+  <canvas id="mainCanvas"></canvas>
+
+  <div class="topBar">
+    <span class="topTitle">Inkwork Tiles</span>
+    <button id="btnRandomize" class="iconBtn" title="Randomize">⟳</button>
+    <button id="btnExport" class="iconBtn" title="Save image">↓</button>
+  </div>
+
+  <div class="sheet" id="sheet">
+
+    <div class="sheetHandle" id="sheetHandle">
+      <div class="sheetPill"></div>
+      <span class="sheetLabel" id="sheetLabel">Settings</span>
+      <button id="btnGenerate" class="generateBtn">Draw</button>
+    </div>
+
+    <div class="settingsList" id="settingsList">
+
+      <!-- ── PATTERN ── -->
+      <div class="settingsGroup">
+        <div class="groupLabel">Pattern</div>
+
+        <div class="settingRow" data-key="patternStyle">
+          <div class="settingRowInner">
+            <span class="settingName">Style</span>
+            <span class="settingVal" id="patternStyleVal">Motif Grid</span>
+          </div>
+          <div class="settingControl">
+            <select id="patternStyle" class="bigSelect">
+              <option value="motif" selected>Motif Grid</option>
+              <option value="lattice">Lattice</option>
+              <option value="hex">Hex Weave</option>
+              <option value="truchet">Truchet</option>
+            </select>
+            <p class="settingHint">Each style shows its own settings below. Colours and seed carry across when you switch.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="seed">
+          <div class="settingRowInner">
+            <span class="settingName">Seed</span>
+            <span class="settingVal" id="seedVal">inkwork</span>
+          </div>
+          <div class="settingControl">
+            <input type="text" id="seed" class="bigText" value="inkwork" spellcheck="false" autocapitalize="off" autocomplete="off">
+            <button id="btnNewSeed" class="wideBtn" type="button">New seed</button>
+            <p class="settingHint">Same seed and same settings always give the same picture. Type anything.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SHAPE (shared) ── -->
+      <div class="settingsGroup">
+        <div class="groupLabel">Tiles</div>
+
+        <div class="settingRow" data-key="tileSize">
+          <div class="settingRowInner">
+            <span class="settingName">Tile size</span>
+            <span class="settingVal" id="tileSizeVal">150</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="tileSize" min="50" max="400" step="10" value="150" class="bigSlider">
+            <p class="settingHint">Size of one tile in pixels on the saved image. Small gives many tiles, large gives a few big ones.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="rotation">
+          <div class="settingRowInner">
+            <span class="settingName">Rotation</span>
+            <span class="settingVal" id="rotationVal">0</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="rotation" min="0" max="360" step="5" value="0" class="bigSlider">
+            <p class="settingHint">Turns the whole grid. The tiles still fill the picture to every edge.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="lineWeight">
+          <div class="settingRowInner">
+            <span class="settingName">Line weight</span>
+            <span class="settingVal" id="lineWeightVal">5</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="lineWeight" min="1" max="24" step="1" value="5" class="bigSlider">
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="opacity">
+          <div class="settingRowInner">
+            <span class="settingName">Pattern opacity</span>
+            <span class="settingVal" id="opacityVal">1</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="opacity" min="0.2" max="1" step="0.05" value="1" class="bigSlider">
+          </div>
+        </div>
+      </div>
+
+      <!-- ── MOTIF GRID ── -->
+      <div class="settingsGroup" data-styles="motif">
+        <div class="groupLabel">Motif Grid</div>
+
+        <div class="settingRow" data-key="motifType">
+          <div class="settingRowInner">
+            <span class="settingName">Motif</span>
+            <span class="settingVal" id="motifTypeVal">Petal</span>
+          </div>
+          <div class="settingControl">
+            <select id="motifType" class="bigSelect">
+              <option value="dot">Dot</option>
+              <option value="diamond">Diamond</option>
+              <option value="petal" selected>Petal</option>
+              <option value="arrow">Arrow</option>
+              <option value="eye">Eye</option>
+              <option value="star">Star</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="motifSize">
+          <div class="settingRowInner">
+            <span class="settingName">Motif size</span>
+            <span class="settingVal" id="motifSizeVal">80</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="motifSize" min="30" max="100" step="5" value="80" class="bigSlider">
+            <p class="settingHint">How much of each tile the motif fills, in percent.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="motifFill">
+          <div class="settingRowInner">
+            <span class="settingName">Fill</span>
+            <span class="settingVal" id="motifFillVal">Filled with outline</span>
+          </div>
+          <div class="settingControl">
+            <select id="motifFill" class="bigSelect">
+              <option value="outline">Outline only</option>
+              <option value="filled">Filled</option>
+              <option value="both" selected>Filled with outline</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="tileTurn">
+          <div class="settingRowInner">
+            <span class="settingName">Tile turning</span>
+            <span class="settingVal" id="tileTurnVal">90° steps</span>
+          </div>
+          <div class="settingControl">
+            <select id="tileTurn" class="bigSelect">
+              <option value="none">None</option>
+              <option value="quarter" selected>90° steps</option>
+              <option value="half">180° checker</option>
+              <option value="random">Random quarter turns</option>
+            </select>
+            <p class="settingHint">How each motif is turned compared with its neighbours.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="tileOffset">
+          <div class="settingRowInner">
+            <span class="settingName">Tile offset</span>
+            <span class="settingVal" id="tileOffsetVal">None</span>
+          </div>
+          <div class="settingControl">
+            <select id="tileOffset" class="bigSelect">
+              <option value="none" selected>None</option>
+              <option value="brick">Brick (shift every other row)</option>
+              <option value="drop">Half drop (shift every other column)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="motifColour">
+          <div class="settingRowInner">
+            <span class="settingName">Colouring</span>
+            <span class="settingVal" id="motifColourVal">Checker</span>
+          </div>
+          <div class="settingControl">
+            <select id="motifColour" class="bigSelect">
+              <option value="checker" selected>Checker</option>
+              <option value="row">By row</option>
+              <option value="column">By column</option>
+              <option value="random">Random from seed</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── LATTICE ── -->
+      <div class="settingsGroup" data-styles="lattice">
+        <div class="groupLabel">Lattice</div>
+
+        <div class="settingRow" data-key="latticeShape">
+          <div class="settingRowInner">
+            <span class="settingName">Shape</span>
+            <span class="settingVal" id="latticeShapeVal">Diamond</span>
+          </div>
+          <div class="settingControl">
+            <select id="latticeShape" class="bigSelect">
+              <option value="diamond" selected>Diamond trellis</option>
+              <option value="square">Square grid</option>
+              <option value="triangle">Triangle mesh</option>
+            </select>
+            <p class="settingHint">The direction of the woven strands.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="latticeWeave">
+          <div class="settingRowInner">
+            <span class="settingName">Weave</span>
+            <span class="settingVal" id="latticeWeaveVal">Over-under</span>
+          </div>
+          <div class="settingControl">
+            <select id="latticeWeave" class="bigSelect">
+              <option value="over" selected>Over-under</option>
+              <option value="flat">Flat (all strands equal)</option>
+              <option value="gap">Gapped (breaks at crossings)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="strandWidth">
+          <div class="settingRowInner">
+            <span class="settingName">Strand width</span>
+            <span class="settingVal" id="strandWidthVal">24</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="strandWidth" min="8" max="60" step="1" value="24" class="bigSlider">
+            <p class="settingHint">Thickness of each ribbon. Line weight sets the edge line around it.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="latticeColour">
+          <div class="settingRowInner">
+            <span class="settingName">Colouring</span>
+            <span class="settingVal" id="latticeColourVal">By direction</span>
+          </div>
+          <div class="settingControl">
+            <select id="latticeColour" class="bigSelect">
+              <option value="direction" selected>By direction</option>
+              <option value="strand">Each strand different</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── HEX WEAVE ── -->
+      <div class="settingsGroup" data-styles="hex">
+        <div class="groupLabel">Hex Weave</div>
+
+        <div class="settingRow" data-key="hexStyle">
+          <div class="settingRowInner">
+            <span class="settingName">Style</span>
+            <span class="settingVal" id="hexStyleVal">Filled</span>
+          </div>
+          <div class="settingControl">
+            <select id="hexStyle" class="bigSelect">
+              <option value="outline">Outline</option>
+              <option value="filled" selected>Filled</option>
+              <option value="woven">Woven bands</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="hexGap">
+          <div class="settingRowInner">
+            <span class="settingName">Cell gap</span>
+            <span class="settingVal" id="hexGapVal">8</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="hexGap" min="0" max="30" step="1" value="8" class="bigSlider">
+            <p class="settingHint">Space between cells, in percent of the cell. Not used by Woven bands.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="hexColour">
+          <div class="settingRowInner">
+            <span class="settingName">Colouring</span>
+            <span class="settingVal" id="hexColourVal">Diagonal bands</span>
+          </div>
+          <div class="settingControl">
+            <select id="hexColour" class="bigSelect">
+              <option value="bands" selected>Diagonal bands</option>
+              <option value="rings">Rings from the centre</option>
+              <option value="random">Random from seed</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── TRUCHET ── -->
+      <div class="settingsGroup" data-styles="truchet">
+        <div class="groupLabel">Truchet</div>
+
+        <div class="settingRow" data-key="truchetStyle">
+          <div class="settingRowInner">
+            <span class="settingName">Tile style</span>
+            <span class="settingVal" id="truchetStyleVal">Arcs</span>
+          </div>
+          <div class="settingControl">
+            <select id="truchetStyle" class="bigSelect">
+              <option value="arcs" selected>Arcs</option>
+              <option value="double">Double arcs</option>
+              <option value="diagonal">Diagonals</option>
+              <option value="band">Filled bands</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="truchetMix">
+          <div class="settingRowInner">
+            <span class="settingName">Randomness</span>
+            <span class="settingVal" id="truchetMixVal">100</span>
+          </div>
+          <div class="settingControl">
+            <input type="range" id="truchetMix" min="0" max="100" step="5" value="100" class="bigSlider">
+            <p class="settingHint">0 makes a perfectly regular repeat. 100 flips tiles freely for flowing mazes.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="truchetColour">
+          <div class="settingRowInner">
+            <span class="settingName">Colouring</span>
+            <span class="settingVal" id="truchetColourVal">Per tile</span>
+          </div>
+          <div class="settingControl">
+            <select id="truchetColour" class="bigSelect">
+              <option value="tile" selected>Random per tile</option>
+              <option value="row">By row</option>
+              <option value="diagonal">Diagonal bands</option>
+              <option value="single">One colour</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── COLOUR ── -->
+      <div class="settingsGroup">
+        <div class="groupLabel">Colour</div>
+
+        <div class="settingRow" data-key="colorScheme">
+          <div class="settingRowInner">
+            <span class="settingName">Scheme</span>
+            <span class="settingVal" id="colorSchemeVal">Custom</span>
+          </div>
+          <div class="settingControl">
+            <select id="colorScheme" class="bigSelect">
+              <option value="custom" selected>Custom (my colours)</option>
+              <option value="complementary">Complementary</option>
+              <option value="splitcomp">Split-complementary</option>
+              <option value="analogous">Analogous</option>
+              <option value="triadic">Triadic</option>
+              <option value="tetradic">Tetradic</option>
+              <option value="monochrome">Monochrome</option>
+              <option value="bauhaus">Bauhaus</option>
+              <option value="delft">Delft blue</option>
+              <option value="jewel">Jewel</option>
+              <option value="earth">Earth and clay</option>
+              <option value="pastel">Pastel on paper</option>
+              <option value="noir">Noir</option>
+              <option value="neon">Neon</option>
+            </select>
+            <p class="settingHint">The first six build from Colour 1 and keep its shade. The rest are fixed palettes that also set the background. Editing any colour by hand switches back to Custom.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="color1" id="color1Row">
+          <div class="settingRowInner">
+            <span class="settingName">Colour 1</span>
+            <span class="colorDot" id="color1Dot" style="background:#e63b2e;"></span>
+          </div>
+          <div class="settingControl"></div>
+          <input type="hidden" id="color1" value="#e63b2e">
+        </div>
+
+        <div class="settingRow" data-key="color2" id="color2Row">
+          <div class="settingRowInner">
+            <span class="settingName">Colour 2</span>
+            <span class="colorDot" id="color2Dot" style="background:#1d3557;"></span>
+          </div>
+          <div class="settingControl"></div>
+          <input type="hidden" id="color2" value="#1d3557">
+        </div>
+
+        <div class="settingRow" data-key="color3" id="color3Row">
+          <div class="settingRowInner">
+            <span class="settingName">Colour 3</span>
+            <span class="colorDot" id="color3Dot" style="background:#f2a900;"></span>
+          </div>
+          <div class="settingControl"></div>
+          <input type="hidden" id="color3" value="#f2a900">
+        </div>
+
+        <div class="settingRow" data-key="color4" id="color4Row">
+          <div class="settingRowInner">
+            <span class="settingName">Colour 4</span>
+            <span class="colorDot" id="color4Dot" style="background:#2a9d8f;"></span>
+          </div>
+          <div class="settingControl"></div>
+          <input type="hidden" id="color4" value="#2a9d8f">
+        </div>
+      </div>
+
+      <!-- ── BACKGROUND ── -->
+      <div class="settingsGroup">
+        <div class="groupLabel">Background</div>
+
+        <div class="settingRow" data-key="bgStyle">
+          <div class="settingRowInner">
+            <span class="settingName">Style</span>
+            <span class="settingVal" id="bgStyleVal">Solid</span>
+          </div>
+          <div class="settingControl">
+            <select id="bgStyle" class="bigSelect">
+              <option value="solid" selected>Solid</option>
+              <option value="linear">Gradient, top to bottom</option>
+              <option value="diagonal">Gradient, diagonal</option>
+              <option value="radial">Gradient, from the centre</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="bgColor" id="bgColorRow">
+          <div class="settingRowInner">
+            <span class="settingName">Background</span>
+            <span class="colorDot" id="bgColorDot" style="background:#efe9dd;"></span>
+          </div>
+          <div class="settingControl"></div>
+          <input type="hidden" id="bgColor" value="#efe9dd">
+        </div>
+
+        <div class="settingRow" data-key="bgColor2" id="bgColor2Row">
+          <div class="settingRowInner">
+            <span class="settingName">Background 2</span>
+            <span class="colorDot" id="bgColor2Dot" style="background:#dcd2bc;"></span>
+          </div>
+          <div class="settingControl"></div>
+          <input type="hidden" id="bgColor2" value="#dcd2bc">
+        </div>
+
+        <div class="settingRow" data-key="bgTransparent">
+          <div class="settingRowInner">
+            <span class="settingName">Transparent bg</span>
+            <span class="settingVal" id="bgTransparentVal">Off</span>
+          </div>
+          <div class="settingControl">
+            <div class="toggleWrap">
+              <button class="toggleBtn" id="bgTransparentToggle" data-on="false" type="button">Off</button>
+            </div>
+            <p class="settingHint">Saved PNGs keep a see-through background. JPG can't, so it will use the background colour.</p>
+          </div>
+          <input type="hidden" id="bgTransparent" value="false">
+        </div>
+      </div>
+
+      <!-- ── OUTPUT ── -->
+      <div class="settingsGroup">
+        <div class="groupLabel">Output</div>
+
+        <div class="settingRow" data-key="size">
+          <div class="settingRowInner">
+            <span class="settingName">Size</span>
+            <span class="settingVal" id="sizeVal">Square</span>
+          </div>
+          <div class="settingControl">
+            <select id="size" class="bigSelect">
+              <option value="square" selected>Square 1500×1500</option>
+              <option value="portrait">Portrait 1080×1620</option>
+              <option value="a17">Samsung A17 1080×2340</option>
+              <option value="landscape">Landscape 1920×1080</option>
+            </select>
+            <p class="settingHint">Tiles run edge to edge at any size.</p>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="format">
+          <div class="settingRowInner">
+            <span class="settingName">File type</span>
+            <span class="settingVal" id="formatVal">PNG</span>
+          </div>
+          <div class="settingControl">
+            <select id="format" class="bigSelect">
+              <option value="png" selected>PNG (sharp, can be transparent)</option>
+              <option value="jpg">JPG (smaller file)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settingRow" data-key="filename">
+          <div class="settingRowInner">
+            <span class="settingName">File name</span>
+            <span class="settingVal" id="filenameVal">inkwork-tiles</span>
+          </div>
+          <div class="settingControl">
+            <input type="text" id="filename" class="bigText" value="inkwork-tiles" spellcheck="false" autocapitalize="off" autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SAVED LOOKS ── -->
+      <div class="settingsGroup">
+        <div class="groupLabel">Saved looks</div>
+
+        <div class="settingRow" data-key="presets">
+          <div class="settingRowInner">
+            <span class="settingName">My presets</span>
+            <span class="settingVal" id="presetCountVal">0</span>
+          </div>
+          <div class="settingControl">
+            <select id="presetList" class="bigSelect">
+              <option value="">— none saved —</option>
+            </select>
+            <div class="btnTrio">
+              <button id="btnSavePreset" class="wideBtn" type="button">Save current</button>
+              <button id="btnLoadPreset" class="wideBtn" type="button">Load</button>
+              <button id="btnDeletePreset" class="wideBtn danger" type="button">Delete</button>
+            </div>
+            <p class="settingHint">Saves every setting and colour on this phone only.</p>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /settingsList -->
+  </div><!-- /sheet -->
+
+</div><!-- /appWrap -->
+
+<!-- ── Colour picker ── -->
+<div id="colorPickerOverlay" class="cpOverlay hidden">
+  <div class="cpPanel">
+    <div class="cpTitle" id="cpTitle">Pick a colour</div>
+    <div class="cpSLWrap">
+      <canvas id="cpSLCanvas"></canvas>
+      <div id="cpSLCursor" class="cpCursor"></div>
+    </div>
+    <div class="cpHueWrap">
+      <canvas id="cpHueCanvas"></canvas>
+      <div id="cpHueCursor" class="cpHueCursor"></div>
+    </div>
+    <div class="cpHexRow">
+      <span class="cpHexLabel">#</span>
+      <input type="text" id="cpHexInput" class="cpHexInput" maxlength="6" spellcheck="false" autocomplete="off">
+      <div id="cpHexPreview" class="cpHexPreview"></div>
+    </div>
+    <div class="cpPresets" id="cpPresets"></div>
+    <div class="cpButtons">
+      <button class="cpBtn" id="cpCancel" type="button">Cancel</button>
+      <button class="cpBtn primary" id="cpApply" type="button">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script src="inkwork-styles.js"></script>
+<script src="inkwork-app.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(function (e) {
+      console.warn("SW:", e);
+    });
+  }
+</script>
+</body>
+</html>
